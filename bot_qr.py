@@ -35,14 +35,11 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8433651914:AAFbaeXrXP17WURqLpzY9p5lLYQap37VzaM')
-
-OWNER_IDS = [6563471310, 8058901135, 7599661912]
+OWNER_IDS = [7994105703, 8058901135, 7599661912]
 
 is_on = False
 allowed_users = set()
 allowed_groups = set()
-
-# Diccionario para guardar la última imagen enviada por usuario
 pending_qr = {}
 
 # ------------------------------------------------------------------
@@ -73,12 +70,8 @@ def parse_emv(data: str) -> dict:
     while i < len(data):
         tag = data[i:i+2]
         i += 2
-        if i >= len(data):
-            break
         len_str = data[i:i+2]
         i += 2
-        if i >= len(data):
-            break
         try:
             length = int(len_str)
         except ValueError:
@@ -241,7 +234,7 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
         user_id = update.effective_user.id
 
     try:
-        if update.message.photo:
+        if update.message and update.message.photo:
             photo = update.message.photo[-1]
         elif user_id in pending_qr:
             photo = pending_qr.pop(user_id)
@@ -313,7 +306,7 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
         await context.bot.send_message(chat_id=user_id, text='❌ Error procesando imagen.')
 
 # ------------------------------------------------------------------
-# DETECTAR COMPARTIR GRUPO
+# DETECTAR MENSAJES EN GRUPO NEQUIZX
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -340,6 +333,7 @@ def main():
     app.add_handler(CommandHandler('eliminargrupo', remove_group))
     app.add_handler(CommandHandler('vergrupos', list_groups))
     app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, handle_photo))
+    # Detectar cualquier mensaje en @Nequizx
     app.add_handler(MessageHandler(filters.ALL & filters.Chat(username='@Nequizx'), handle_group_message))
     logger.info("Bot iniciado")
     app.run_polling(allowed_updates=['message'])
