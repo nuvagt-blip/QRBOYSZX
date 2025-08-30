@@ -1,7 +1,8 @@
 import logging
 import re
-from io import BytesIO
+import json
 import os
+from io import BytesIO
 
 try:
     from PIL import Image
@@ -27,17 +28,42 @@ except ImportError:
     print("Error: python-telegram-bot is not installed. Run 'pip install python-telegram-bot>=21.0'.")
     exit(1)
 
-# Configuración básica
+# ------------------------------------------------------------------
+# CONFIG
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8433651914:AAFbaeXrXP17WURqLpzY9p5lLYQap37VzaM')
-OWNER_IDS = {7994105703, 8058901135, 7599661912}
+
+OWNER_IDS = [6563471310, 8058901135, 7599661912]  # No hardcodeamos grupos
+
 is_on = False
 allowed_users = set()
 allowed_groups = set()
 
-# Lógica EMV (igual que tenías)
+# ------------------------------------------------------------------
+# JSON HELPERS
+def load_json(path, default=None):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default or set()
+
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(list(data), f, indent=2)
+
+USERS_FILE  = "allowed_users.json"
+GROUPS_FILE = "allowed_groups.json"
+ADMINS_FILE = "admins.json"
+
+USERS  = load_json(USERS_FILE)
+GROUPS = load_json(GROUPS_FILE)
+ADMINS = load_json(ADMINS_FILE, default=set(OWNER_IDS))
+
+# ------------------------------------------------------------------
+# UTILS
 def parse_emv(data: str) -> dict:
     i, result = 0, {}
     while i < len(data):
@@ -58,94 +84,178 @@ def parse_emv(data: str) -> dict:
         result[tag] = value
     return result
 
-# Handlers / comandos
+# ------------------------------------------------------------------
+# HANDLERS
 async def start(update, context):
-    user = update.message.from_user
-    user_id = user.id
-    user_name = user.full_name or user.username or "Usuario"
-    chat_id = update.message.chat_id
-    is_group = update.message.chat.type in ['group', 'supergroup']
-    base_welcome = (
-        f"🎉 ¡Hola *{user_name}*! 👋\n"
-        f"🆔 Tu ID de Telegram es: `{user_id}`\n"
-        "📷 Envía una imagen de un código QR de Nequi / Bancolombia / Davivienda / Daviplata.\n"
-        "🔄 O usa /qrgen <datos> para generar un QR."
+    user = update.effective_user
+    await update.message.reply_text(
+        f"👋 ¡Hola *{user.full_name or user.username or 'Amig@'}*!\n"
+        f"📷 Envía una imagen de QR y obtén la info completa.",
+        parse_mode="Markdown"
     )
-    if is_group:
-        if chat_id in allowed_groups or is_on or user_id in OWNER_IDS:
-            await update.message.reply_text(base_welcome.replace("¡Hola", "¡Hola al grupo"), parse_mode='Markdown')
-        else:
-            await update.message.reply_text(
-                '🚫 Grupo no autorizado. Contacta a [@Teampaz2](https://t.me/Teampaz2) o [@ninja_ofici4l](https://t.me/ninja_ofici4l).',
-                parse_mode='Markdown'
-            )
-    else:
-        if is_on or user_id in OWNER_IDS or user_id in allowed_users:
-            await update.message.reply_text(base_welcome + "\n\n✅ Sistemas activos.", parse_mode='Markdown')
-        else:
-            await update.message.reply_text(
-                base_welcome + "\n\n🔴 Sistemas apagados. Adquiere VIP o comparte [𝐍𝐄𝐐𝐔𝐈 𝐙𝐗](https://t.me/Nequizx).",
-                parse_mode='Markdown'
-            )
 
-async def qrbin(update, context):
-    await update.message.reply_text("📷 Envía la imagen del QR.")
-
-async def qrgen(update, context):
-    if not context.args:
-        await update.message.reply_text("📝 Uso: /qrgen <datos>")
+# ------------------------------------------------------------------
+# COMANDOS ADMIN
+async def help_admin(update, context):
+    if update.effective_user.id not in ADMINS:
         return
-    data = ' '.join(context.args)
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color='black', back_color='white')
-    bio = BytesIO()
-    img.save(bio, 'PNG')
-    bio.seek(0)
-    await update.message.reply_photo(photo=bio)
+    await update.message.reply_text(
+        "🛠 *Comandos admin*\n\n"
+        "• /on  → activar bot\n"
+        "• /off → desactivar bot\n"
+        "• /agregar <id> → autorizar usuario\n"
+        "• /eliminar <id> → quitar usuario\n"
+        "• /verusuarios → listar usuarios\n"
+        "• /agregargrupo <id> → autorizar grupo\n"
+        "• /eliminargrupo <id> → quitar grupo\n"
+        "• /vergrupos → listar grupos\n"
+        "• /help → este menú",
+        parse_mode="Markdown"
+    )
 
+async def on_cmd(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    global is_on
+    is_on = True
+    await update.message.reply_text("✅ Bot activado globalmente.")
+
+async def off_cmd(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    global is_on
+    is_on = False
+    await update.message.reply_text("⛔ Bot desactivado globalmente.")
+
+# Usuarios
+async def add_user(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    if not context.args:
+        await update.message.reply_text("Uso: /agregar <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+        USERS.add(uid)
+        save_json(USERS_FILE, USERS)
+        await update.message.reply_text(f"✅ Usuario {uid} agregado.")
+    except ValueError:
+        await update.message.reply_text("❌ ID inválido.")
+
+async def remove_user(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    if not context.args:
+        await update.message.reply_text("Uso: /eliminar <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+        USERS.discard(uid)
+        save_json(USERS_FILE, USERS)
+        await update.message.reply_text(f"🗑️ Usuario {uid} eliminado.")
+    except ValueError:
+        await update.message.reply_text("❌ ID inválido.")
+
+async def list_users(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    txt = "\n".join(map(str, sorted(USERS))) if USERS else "Sin usuarios."
+    await update.message.reply_text(f"👥 Usuarios:\n{txt}")
+
+# Grupos
+async def add_group(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    if not context.args:
+        await update.message.reply_text("Uso: /agregargrupo <group_id>")
+        return
+    try:
+        gid = int(context.args[0])
+        GROUPS.add(gid)
+        save_json(GROUPS_FILE, GROUPS)
+        await update.message.reply_text(f"✅ Grupo {gid} agregado.")
+    except ValueError:
+        await update.message.reply_text("❌ ID inválido.")
+
+async def remove_group(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    if not context.args:
+        await update.message.reply_text("Uso: /eliminargrupo <group_id>")
+        return
+    try:
+        gid = int(context.args[0])
+        GROUPS.discard(gid)
+        save_json(GROUPS_FILE, GROUPS)
+        await update.message.reply_text(f"🗑️ Grupo {gid} eliminado.")
+    except ValueError:
+        await update.message.reply_text("❌ ID inválido.")
+
+async def list_groups(update, context):
+    if update.effective_user.id not in ADMINS:
+        return
+    txt = "\n".join(map(str, sorted(GROUPS))) if GROUPS else "Sin grupos."
+    await update.message.reply_text(f"🗂 Grupos:\n{txt}")
+
+# ------------------------------------------------------------------
+# QR PROCESSOR
 async def handle_photo(update, context):
-    user_id = update.message.from_user.id
-    chat_id = update.message.chat_id
-    is_authorized = is_on or user_id in OWNER_IDS or user_id in allowed_users or chat_id in allowed_groups
-    if not is_authorized:
+    user_id = update.effective_user.id
+    chat = update.effective_chat
+    chat_type = chat.type
+
+    # Autorización
+    authorized = (
+        is_on
+        or user_id in ADMINS
+        or user_id in USERS
+        or chat.id in GROUPS
+    )
+
+    if not authorized:
         await update.message.reply_text(
-            '🚫 No estás autorizado para usar este bot. Contacta a [@Teampaz2](https://t.me/Teampaz2 ) o [@ninja_ofici4l](https://t.me/ninja_ofici4l ) para más información. 📩',
+            '🚫 No estás autorizado. Contacta a @Sangre_binerojs, @Teampaz2 o @ninja_ofici4l.',
             parse_mode='Markdown'
         )
         return
+
+    # 1) Si estamos en PRIVADO y el bot está ON, pedimos compartir
+    if chat_type == "private" and is_on:
+        await update.message.reply_text(
+            "📬 Para recibir la información, **comparte el grupo [𝐍𝐄𝐐𝐔𝐈 𝐙𝐗](https://t.me/Nequizx)** con al menos 1 persona.\n"
+            "🧑‍💻 Contacto: @Sangre_binerojs | @Teampaz2 | @ninja_ofici4l",
+            parse_mode='Markdown'
+        )
+        return  # No procesamos el QR aún
+
+    # 2) Procesamiento normal (grupos o usuarios autorizados)
     await update.message.reply_text('📦 Escaneando la imagen...')
-    logger.info(f"Processing photo from user {user_id} in chat {chat_id}")
     try:
         photo = update.message.photo[-1]
         photo_file = await photo.get_file()
         photo_bytes = await photo_file.download_as_bytearray()
-
-        # Abrir imagen
         image = Image.open(BytesIO(photo_bytes))
         if image.mode not in ("RGB", "L"):
             image = image.convert("RGB")
 
-        decoded_objects = decode(image)
-        if not decoded_objects:
-            await update.message.reply_text('❌ No se detectó código QR en la imagen. 📸')
+        decoded = decode(image)
+        if not decoded:
+            await update.message.reply_text('❌ No se detectó código QR.')
             return
 
-        data = decoded_objects[0].data.decode('utf-8', errors='ignore')
+        data = decoded[0].data.decode('utf-8', errors='ignore')
 
-        # ---- EXTRACCIÓN COMPLETA ----
-        platform  = 'Desconocida'
-        number    = 'N/A'
-        name      = 'N/A'
-        location  = 'Bogotá'
-        dni       = 'N/A'
+        platform = 'Desconocida'
+        number   = 'N/A'
+        name     = 'N/A'
+        location = 'Bogotá'
+        dni      = 'N/A'
 
-        lower_data = data.lower()
         phone_regex  = r'(?:(?:\+57|57)|0)?3[0-9]{9}\b'
         account_regex = r'\b\d{10,16}\b'
         dni_regex     = r'\b\d{7,10}\b'
 
+        lower_data = data.lower()
         if 'nequi' in lower_data:
             platform = 'Nequi'
         elif 'bancolombia' in lower_data:
@@ -155,83 +265,54 @@ async def handle_photo(update, context):
         elif 'daviplata' in lower_data:
             platform = 'Daviplata'
 
-        # EMV / formateo
-        try:
-            emv_data = parse_emv(data)
-            if '59' in emv_data:
-                name = emv_data['59']
-            if '60' in emv_data and emv_data['60']:
-                location = emv_data['60']
-            if '62' in emv_data:
-                sub_data = parse_emv(emv_data['62'])
-                if '01' in sub_data and re.match(dni_regex, sub_data['01']):
-                    dni = sub_data['01']
-                if '02' in sub_data:
-                    number = sub_data['02']
-                for sub_tag in ['03', '04', '05']:
-                    if sub_tag in sub_data and re.match(dni_regex, sub_data[sub_tag]):
-                        dni = sub_data[sub_tag]
+        emv = parse_emv(data)
+        if '59' in emv:
+            name = emv['59']
+        if '60' in emv and emv['60']:
+            location = emv['60']
+        if '62' in emv:
+            sub = parse_emv(emv['62'])
+            dni = sub.get('01', dni)
+            number = sub.get('02', number)
 
-            # Búsqueda en campos 26-51
-            for t in range(26, 52):
-                ts = f'{t:02d}'
-                if ts in emv_data:
-                    sub_data = parse_emv(emv_data[ts])
-                    if '00' in sub_data:
-                        guid = sub_data['00'].lower()
-                        if 'nequi' in guid:
-                            platform = 'Nequi'
-                        elif 'bancolombia' in guid:
-                            platform = 'Bancolombia'
-                        elif 'davivienda' in guid:
-                            platform = 'Davivienda'
-                        elif 'daviplata' in guid:
-                            platform = 'Daviplata'
-                    if '01' in sub_data:
-                        number = sub_data['01']
-                        if platform in ['Nequi', 'Daviplata'] and not re.match(phone_regex, number):
-                            number = 'N/A'
-                    for sub_tag in ['02', '03']:
-                        if sub_tag in sub_data and platform in ['Nequi', 'Daviplata']:
-                            if re.match(phone_regex, sub_data[sub_tag]):
-                                number = sub_data[sub_tag]
-                    for sub_tag in ['04', '05']:
-                        if sub_tag in sub_data and re.match(dni_regex, sub_data[sub_tag]):
-                            dni = sub_data[sub_tag]
-        except Exception:
-            pass
-
-        # Regex de respaldo
+        # Regex fallback
         if platform in ['Bancolombia', 'Davivienda']:
-            match = re.search(account_regex, data)
-            if match:
-                number = match.group(0)
+            m = re.search(account_regex, data)
+            if m:
+                number = m.group(0)
         if platform in ['Nequi', 'Daviplata']:
-            match = re.search(phone_regex, data)
-            if match:
-                number = match.group(0)
+            m = re.search(phone_regex, data)
+            if m:
+                number = m.group(0)
 
-        response = (
-            f'🏦 **Plataforma**: {platform}\n'
-            f'📱 **Número**: {number}\n'
-            f'👤 **Nombre**: {name}\n'
-            f'📍 **Ubicación**: {location}\n'
-            f'🪪 **DNI**: {dni}'
+        reply = (
+            f"🏦 **Plataforma**: {platform}\n"
+            f"📱 **Número**: {number}\n"
+            f"👤 **Nombre**: {name}\n"
+            f"📍 **Ubicación**: {location}\n"
+            f"🪪 **DNI**: {dni}"
         )
-        await update.message.reply_text(response, parse_mode='Markdown')
-        logger.info(f"QR processed successfully for user {user_id} in chat {chat_id}")
+        await update.message.reply_text(reply, parse_mode='Markdown')
 
     except Exception as e:
-        logger.error(f"Unexpected error in handle_photo: {e}")
-        await update.message.reply_text('❌ Error inesperado al procesar la imagen. Intenta de nuevo. 📸')
-        
+        logger.error(e)
+        await update.message.reply_text('❌ Error procesando imagen.')
+
+# ------------------------------------------------------------------
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('qrbin', qrbin))
-    app.add_handler(CommandHandler('qrgen', qrgen))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    logger.info("Starting bot...")
+    app.add_handler(CommandHandler('help', help_admin))
+    app.add_handler(CommandHandler('ayuda', help_admin))
+    app.add_handler(CommandHandler('on', on_cmd))
+    app.add_handler(CommandHandler('off', off_cmd))
+    app.add_handler(CommandHandler('agregar', add_user))
+    app.add_handler(CommandHandler('eliminarusuario', remove_user))
+    app.add_handler(CommandHandler('verusuario', list_users))
+    app.add_handler(CommandHandler('agregargrupo', add_group))
+    app.add_handler(CommandHandler('eliminargrupo', remove_group))
+    app.add_handler(CommandHandler('vergrupos', list_groups))
+    logger.info("Bot iniciado")
     app.run_polling(allowed_updates=['message'])
 
 if __name__ == '__main__':
