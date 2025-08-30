@@ -4,45 +4,38 @@ import json
 import os
 import asyncio
 from io import BytesIO
-
 try:
     from PIL import Image
 except ImportError:
     print("Error: PIL (Pillow) is not installed. Run 'pip install Pillow' to resolve.")
     exit(1)
-
 try:
     from pyzbar.pyzbar import decode
 except ImportError:
     print("Error: pyzbar is not installed. Run 'pip install pyzbar' and install libzbar.")
     exit(1)
-
 try:
     import qrcode
 except ImportError:
     print("Error: qrcode is not installed. Run 'pip install qrcode' to resolve.")
     exit(1)
-
 try:
     from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
     from telegram import Update
 except ImportError:
     print("Error: python-telegram-bot is not installed. Run 'pip install python-telegram-bot>=21.0'.")
     exit(1)
-
 # ------------------------------------------------------------------
 # CONFIG
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8433651914:AAFbaeXrXP17WURqLpzY9p5lLYQap37VzaM')
 OWNER_IDS = [7994105703, 8058901135, 7599661912]
-
 is_on = False
+free_mode = False  # Nueva variable para modo gratis
 allowed_users = set()
 allowed_groups = set()
 pending_qr = {}
-
 # ------------------------------------------------------------------
 # JSON HELPERS
 def load_json(path, default=None):
@@ -51,19 +44,15 @@ def load_json(path, default=None):
             return set(json.load(f))
     except (FileNotFoundError, json.JSONDecodeError):
         return default or set()
-
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(list(data), f, indent=2)
-
-USERS_FILE  = "allowed_users.json"
+USERS_FILE = "allowed_users.json"
 GROUPS_FILE = "allowed_groups.json"
 ADMINS_FILE = "admins.json"
-
-USERS  = load_json(USERS_FILE)
+USERS = load_json(USERS_FILE)
 GROUPS = load_json(GROUPS_FILE)
 ADMINS = load_json(ADMINS_FILE, default=set(OWNER_IDS))
-
 # ------------------------------------------------------------------
 # UTILS
 def parse_emv(data: str) -> dict:
@@ -81,7 +70,6 @@ def parse_emv(data: str) -> dict:
         i += length
         result[tag] = value
     return result
-
 # ------------------------------------------------------------------
 # HANDLERS
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -91,7 +79,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📷 Envía una imagen de QR y obtén la info completa.",
         parse_mode="Markdown"
     )
-
 # ------------------------------------------------------------------
 # COMANDOS ADMIN
 async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -99,8 +86,9 @@ async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "🛠 *Comandos admin*\n\n"
-        "• /on  → activar bot\n"
+        "• /on → activar bot\n"
         "• /off → desactivar bot\n"
+        "• /gratis → activar modo libre (todos pueden usar el bot)\n"
         "• /agregar <id> → autorizar usuario\n"
         "• /eliminar <id> → quitar usuario\n"
         "• /verusuarios → listar usuarios\n"
@@ -110,21 +98,25 @@ async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /help → este menú",
         parse_mode="Markdown"
     )
-
 async def on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
     global is_on
     is_on = True
     await update.message.reply_text("✅ Bot activado globalmente.")
-
 async def off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
     global is_on
     is_on = False
     await update.message.reply_text("⛔ Bot desactivado globalmente.")
-
+async def free_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMINS:
+        return
+    global free_mode
+    free_mode = not free_mode
+    status = "activado" if free_mode else "desactivado"
+    await update.message.reply_text(f"🆓 Modo gratis {status}. {'Todos pueden usar el bot.' if free_mode else 'Restricciones aplicadas.'}")
 # Usuarios
 async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
@@ -139,7 +131,6 @@ async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Usuario {uid} agregado.")
     except ValueError:
         await update.message.reply_text("❌ ID inválido.")
-
 async def remove_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
@@ -153,13 +144,11 @@ async def remove_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🗑️ Usuario {uid} eliminado.")
     except ValueError:
         await update.message.reply_text("❌ ID inválido.")
-
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
     txt = "\n".join(map(str, sorted(USERS))) if USERS else "Sin usuarios."
     await update.message.reply_text(f"👥 Usuarios:\n{txt}")
-
 # Grupos
 async def add_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
@@ -174,7 +163,6 @@ async def add_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Grupo {gid} agregado.")
     except ValueError:
         await update.message.reply_text("❌ ID inválido.")
-
 async def remove_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
@@ -188,27 +176,24 @@ async def remove_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🗑️ Grupo {gid} eliminado.")
     except ValueError:
         await update.message.reply_text("❌ ID inválido.")
-
 async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
     txt = "\n".join(map(str, sorted(GROUPS))) if GROUPS else "Sin grupos."
     await update.message.reply_text(f"🗂 Grupos:\n{txt}")
-
 # ------------------------------------------------------------------
 # QR PROCESSOR
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat = update.effective_chat
     chat_type = chat.type
-
     # Verificación si el bot está activado y el usuario está autorizado
     is_authorized = (
         user_id in ADMINS or
         user_id in USERS or
-        chat.id in GROUPS
+        chat.id in GROUPS or
+        free_mode  # Permitir acceso si el modo gratis está activado
     )
-
     # Si el bot está apagado y el usuario no está autorizado
     if not is_on and not is_authorized:
         await update.message.reply_text(
@@ -216,7 +201,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-
     # Si el mensaje es privado y el usuario no está autorizado, envía mensaje de autorización
     if chat_type == "private" and is_on and not is_authorized:
         # Guardar foto para después
@@ -228,17 +212,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-
-    # Si el mensaje es de grupo autorizado, procesar el QR
+    # Si el mensaje es de grupo autorizado o modo gratis, procesar el QR
     await process_qr(update, context)
-
-
 # ------------------------------------------------------------------
 # PROCESAR QR
 async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id=None):
     if user_id is None:
         user_id = update.effective_user.id
-
     try:
         if update.message and update.message.photo:
             photo = update.message.photo[-1]
@@ -246,55 +226,29 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             photo = pending_qr.pop(user_id)
         else:
             return
-
-        photo_file = await photo.get_file()
-        photo_bytes = await photo_file.download_as_bytearray()
-        image = Image.open(BytesIO(photo_bytes))
-        if image.mode not in ("RGB", "L"):
-            image = image.convert("RGB")
-
-        decoded = decode(image)
-        if not decoded:async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id=None):
-    if user_id is None:
-        user_id = update.effective_user.id
-
-    try:
-        if update.message and update.message.photo:
-            photo = update.message.photo[-1]
-        elif user_id in pending_qr:
-            photo = pending_qr.pop(user_id)
-        else:
-            return
-
         # Verificación si el mensaje es de un grupo autorizado
         chat = update.effective_chat
-        if chat.type == 'supergroup' and chat.id not in GROUPS:
+        if chat.type == 'supergroup' and chat.id not in GROUPS and not free_mode:
             await update.message.reply_text('🚫 Este grupo no está autorizado para usar el bot.')
             return
-
         # Procesamiento del QR
         photo_file = await photo.get_file()
         photo_bytes = await photo_file.download_as_bytearray()
         image = Image.open(BytesIO(photo_bytes))
         if image.mode not in ("RGB", "L"):
             image = image.convert("RGB")
-
         decoded = decode(image)
         if not decoded:
             await context.bot.send_message(chat_id=user_id, text='❌ No se detectó código QR.')
             return
-
         data = decoded[0].data.decode('utf-8', errors='ignore')
-
         platform = 'Desconocida'
-        number   = 'N/A'
-        name     = 'N/A'
+        number = 'N/A'
+        name = 'N/A'
         location = 'Bogotá'
-        dni      = 'N/A'
-
-        phone_regex  = r'(?:(?:\+57|57)|0)?3[0-9]{9}\b'
+        dni = 'N/A'
+        phone_regex = r'(?:(?:\+57|57)|0)?3[0-9]{9}\b'
         account_regex = r'\b\d{10,16}\b'
-
         lower_data = data.lower()
         if 'nequi' in lower_data:
             platform = 'Nequi'
@@ -304,7 +258,6 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             platform = 'Davivienda'
         elif 'daviplata' in lower_data:
             platform = 'Daviplata'
-
         emv = parse_emv(data)
         if '59' in emv:
             name = emv['59']
@@ -314,7 +267,6 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             sub = parse_emv(emv['62'])
             dni = sub.get('01', dni)
             number = sub.get('02', number)
-
         if platform in ['Bancolombia', 'Davivienda']:
             m = re.search(account_regex, data)
             if m:
@@ -323,7 +275,6 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             m = re.search(phone_regex, data)
             if m:
                 number = m.group(0)
-
         reply = (
             f"🏦 **Plataforma**: {platform}\n"
             f"📱 **Número**: {number}\n"
@@ -332,26 +283,21 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             f"🪪 **DNI**: {dni}"
         )
         await context.bot.send_message(chat_id=user_id, text=reply, parse_mode='Markdown')
-
     except Exception as e:
         logger.error(e)
         await context.bot.send_message(chat_id=user_id, text='❌ Error procesando imagen.')
-
-
 # ------------------------------------------------------------------
 # DETECTAR MENSAJES EN GRUPO NEQUIZX
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-
-    if chat.username and chat.username.lower() == "nequizx":
+    if chat.username and chat.username.lower() == "@nequizx":
         if user.id not in USERS and user.id not in ADMINS:
             USERS.add(user.id)
             save_json(USERS_FILE, USERS)
             await asyncio.sleep(2)  # Pequeña pausa para simular "verificación"
             if user.id in pending_qr:
                 await process_qr(update, context, user_id=user.id)
-
 # ------------------------------------------------------------------
 def main():
     app = Application.builder().token(TOKEN).build()
@@ -360,6 +306,7 @@ def main():
     app.add_handler(CommandHandler('ayuda', help_admin))
     app.add_handler(CommandHandler('on', on_cmd))
     app.add_handler(CommandHandler('off', off_cmd))
+    app.add_handler(CommandHandler('gratis', free_cmd))  # Nuevo comando
     app.add_handler(CommandHandler('agregar', add_user))
     app.add_handler(CommandHandler('eliminarusuario', remove_user))
     app.add_handler(CommandHandler('verusuario', list_users))
@@ -370,6 +317,5 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & filters.Chat(username='@Nequizx'), handle_group_message))
     logger.info("Bot iniciado")
     app.run_polling(allowed_updates=['message'])
-
 if __name__ == '__main__':
     main()
