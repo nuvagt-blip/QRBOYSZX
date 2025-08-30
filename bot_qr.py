@@ -2,6 +2,7 @@ import logging
 import re
 import json
 import os
+import asyncio
 from io import BytesIO
 
 try:
@@ -315,6 +316,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         if user.id not in USERS and user.id not in ADMINS:
             USERS.add(user.id)
             save_json(USERS_FILE, USERS)
+            await asyncio.sleep(2)  # Pequeña pausa para simular "verificación"
             if user.id in pending_qr:
                 await process_qr(update, context, user_id=user.id)
 
@@ -333,8 +335,7 @@ def main():
     app.add_handler(CommandHandler('eliminargrupo', remove_group))
     app.add_handler(CommandHandler('vergrupos', list_groups))
     app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, handle_photo))
-    # Detectar cualquier mensaje en @Nequizx
-    app.add_handler(MessageHandler(filters.ALL & filters.Chat(username='@Nequizx'), handle_group_message))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Chat(username='@Nequizx'), handle_group_message))
     logger.info("Bot iniciado")
     app.run_polling(allowed_updates=['message'])
 
