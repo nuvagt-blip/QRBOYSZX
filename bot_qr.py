@@ -228,7 +228,7 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             return
         # Verificación si el mensaje es de un grupo autorizado
         chat = update.effective_chat
-        if chat.type == 'supergroup' and chat.id not in GROUPS and not free_mode:
+        if chat.type in ['group', 'supergroup'] and chat.id not in GROUPS and not free_mode:
             await update.message.reply_text('🚫 Este grupo no está autorizado para usar el bot.')
             return
         # Procesamiento del QR
@@ -239,7 +239,7 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             image = image.convert("RGB")
         decoded = decode(image)
         if not decoded:
-            await context.bot.send_message(chat_id=user_id, text='❌ No se detectó código QR.')
+            await context.bot.send_message(chat_id=chat.id, text='❌ No se detectó código QR.')
             return
         data = decoded[0].data.decode('utf-8', errors='ignore')
         platform = 'Desconocida'
@@ -282,16 +282,16 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             f"📍 **Ubicación**: {location}\n"
             f"🪪 **DNI**: {dni}"
         )
-        await context.bot.send_message(chat_id=user_id, text=reply, parse_mode='Markdown')
+        await context.bot.send_message(chat_id=chat.id, text=reply, parse_mode='Markdown')
     except Exception as e:
         logger.error(e)
-        await context.bot.send_message(chat_id=user_id, text='❌ Error procesando imagen.')
+        await context.bot.send_message(chat_id=chat.id, text='❌ Error procesando imagen.')
 # ------------------------------------------------------------------
 # DETECTAR MENSAJES EN GRUPO NEQUIZX
 async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if chat.username and chat.username.lower() == "@nequizx":
+    if chat.username and chat.username.lower() == "nequizx":
         if user.id not in USERS and user.id not in ADMINS:
             USERS.add(user.id)
             save_json(USERS_FILE, USERS)
@@ -313,8 +313,8 @@ def main():
     app.add_handler(CommandHandler('agregargrupo', add_group))
     app.add_handler(CommandHandler('eliminargrupo', remove_group))
     app.add_handler(CommandHandler('vergrupos', list_groups))
-    app.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Chat(username='@Nequizx'), handle_group_message))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Chat(username='Nequizx'), handle_group_message))
     logger.info("Bot iniciado")
     app.run_polling(allowed_updates=['message'])
 if __name__ == '__main__':
