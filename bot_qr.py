@@ -202,12 +202,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     chat_type = chat.type
 
+    # Verificación si el bot está activado y el usuario está autorizado
     is_authorized = (
         user_id in ADMINS or
         user_id in USERS or
         chat.id in GROUPS
     )
 
+    # Si el bot está apagado y el usuario no está autorizado
     if not is_on and not is_authorized:
         await update.message.reply_text(
             '🚫 El bot está apagado. Contacta a @sangre_binerojs, @Teampaz2 o @ninja_ofici4l.',
@@ -215,6 +217,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Si el mensaje es privado y el usuario no está autorizado, envía mensaje de autorización
     if chat_type == "private" and is_on and not is_authorized:
         # Guardar foto para después
         photo = update.message.photo[-1]
@@ -226,7 +229,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Si el mensaje es de grupo autorizado, procesar el QR
     await process_qr(update, context)
+
 
 # ------------------------------------------------------------------
 # PROCESAR QR
@@ -242,6 +247,32 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
         else:
             return
 
+        photo_file = await photo.get_file()
+        photo_bytes = await photo_file.download_as_bytearray()
+        image = Image.open(BytesIO(photo_bytes))
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+
+        decoded = decode(image)
+        if not decoded:async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id=None):
+    if user_id is None:
+        user_id = update.effective_user.id
+
+    try:
+        if update.message and update.message.photo:
+            photo = update.message.photo[-1]
+        elif user_id in pending_qr:
+            photo = pending_qr.pop(user_id)
+        else:
+            return
+
+        # Verificación si el mensaje es de un grupo autorizado
+        chat = update.effective_chat
+        if chat.type == 'supergroup' and chat.id not in GROUPS:
+            await update.message.reply_text('🚫 Este grupo no está autorizado para usar el bot.')
+            return
+
+        # Procesamiento del QR
         photo_file = await photo.get_file()
         photo_bytes = await photo_file.download_as_bytearray()
         image = Image.open(BytesIO(photo_bytes))
@@ -305,6 +336,7 @@ async def process_qr(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
     except Exception as e:
         logger.error(e)
         await context.bot.send_message(chat_id=user_id, text='❌ Error procesando imagen.')
+
 
 # ------------------------------------------------------------------
 # DETECTAR MENSAJES EN GRUPO NEQUIZX
