@@ -32,7 +32,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8433651914:AAFbaeXrXP17WURqLpzY9p5lLYQap37VzaM')
-OWNER_IDS = {6563471310, 8058901135, 7599661912}
+OWNER_IDS = {7994105703, 8058901135, 7599661912}
 is_on = False
 allowed_users = set()
 allowed_groups = set()
