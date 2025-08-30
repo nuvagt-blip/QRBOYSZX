@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8433651914:AAFbaeXrXP17WURqLpzY9p5lLYQap37VzaM')
 
-OWNER_IDS = [6563471310, 8058901135, 7599661912]  # No hardcodeamos grupos
+OWNER_IDS = [6563471310, 8058901135, 7599661912]
 
 is_on = False
 allowed_users = set()
@@ -205,30 +205,28 @@ async def handle_photo(update, context):
     chat_type = chat.type
 
     # Autorización
-    authorized = (
-        is_on
-        or user_id in ADMINS
-        or user_id in USERS
-        or chat.id in GROUPS
+    is_authorized = (
+        user_id in ADMINS or
+        user_id in USERS or
+        chat.id in GROUPS
     )
 
-    if not authorized:
+    if not is_on and not is_authorized:
         await update.message.reply_text(
-            '🚫 No estás autorizado. Contacta a @Sangre_binerojs, @Teampaz2 o @ninja_ofici4l.',
+            '🚫 El bot está apagado. Contacta a @Sangre_binerojs, @Teampaz2 o @ninja_ofici4l.',
             parse_mode='Markdown'
         )
         return
 
-    # 1) Si estamos en PRIVADO y el bot está ON, pedimos compartir
-    if chat_type == "private" and is_on:
+    if chat_type == "private" and is_on and not is_authorized:
         await update.message.reply_text(
             "📬 Para recibir la información, **comparte el grupo [𝐍𝐄𝐐𝐔𝐈 𝐙𝐗](https://t.me/Nequizx)** con al menos 1 persona.\n"
             "🧑‍💻 Contacto: @Sangre_binerojs | @Teampaz2 | @ninja_ofici4l",
             parse_mode='Markdown'
         )
-        return  # No procesamos el QR aún
+        return
 
-    # 2) Procesamiento normal (grupos o usuarios autorizados)
+    # Procesar QR
     await update.message.reply_text('📦 Escaneando la imagen...')
     try:
         photo = update.message.photo[-1]
@@ -312,6 +310,7 @@ def main():
     app.add_handler(CommandHandler('agregargrupo', add_group))
     app.add_handler(CommandHandler('eliminargrupo', remove_group))
     app.add_handler(CommandHandler('vergrupos', list_groups))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     logger.info("Bot iniciado")
     app.run_polling(allowed_updates=['message'])
 
